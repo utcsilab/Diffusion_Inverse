@@ -14,7 +14,7 @@ activate conda environment
 conda activate edm
 ```
 
-Assuming all model, and data paths are configured correctly in inference.py use the following command to do a simple reconstruction
+Assuming all model, and data paths are configured correctly in inference.py use the following command to do a reconstruction
 
 ```.bash
 python inference.py --gpu 0
