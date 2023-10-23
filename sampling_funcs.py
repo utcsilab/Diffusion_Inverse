@@ -24,9 +24,9 @@ from utils import forward, adjoint, nrmse
 #----------------------------------------------------------------------------
 # Generalized ablation sampler, representing the superset of all sampling
 # methods discussed in the paper.
-def marginal_ablation_sampler(
-    y_meas, mask, s_maps, l_ss, net, latents, class_labels=None, randn_like=torch.randn_like,
-    num_steps=18, num_inner_steps = 4, sigma_min=None, sigma_max=None, rho=7,
+def general_SDE_ps(
+    y, mask, maps, l_ss, net, latents, class_labels=None, randn_like=torch.randn_like,
+    num_steps=18, sigma_min=None, sigma_max=None, rho=7,
     solver='euler', discretization='edm', schedule='linear', scaling='none',
     epsilon_s=1e-3, C_1=0.001, C_2=0.008, M=1000, alpha=1,
     S_churn=0, S_min=0, S_max=float('inf'), S_noise=1, gt_img=None, verbose = True,
@@ -111,49 +111,54 @@ def marginal_ablation_sampler(
     t_next = t_steps[0]
     x_next = latents.to(torch.float64) * (sigma(t_next) * s(t_next))
     for i, (t_cur, t_next) in enumerate(zip(t_steps[:-1], t_steps[1:])): # 0, ..., N-1
-        for inner_step in range(num_inner_steps):
-            x_cur = x_next
+        x_cur = x_next
+        x_cur = x_cur.requires_grad_() #starting grad tracking with the noised img
 
-            # Increase noise temporarily.
-            gamma = min(S_churn / num_steps, np.sqrt(2) - 1) if S_min <= sigma(t_cur) <= S_max else 0
-            t_hat = sigma_inv(net.round_sigma(sigma(t_cur) + gamma * sigma(t_cur)))
-            x_hat = s(t_hat) / s(t_cur) * x_cur + (sigma(t_hat) ** 2 - sigma(t_cur) ** 2).clip(min=0).sqrt() * s(t_hat) * S_noise * randn_like(x_cur)
+        # Increase noise temporarily.
+        gamma = min(S_churn / num_steps, np.sqrt(2) - 1) if S_min <= sigma(t_cur) <= S_max else 0
+        t_hat = sigma_inv(net.round_sigma(sigma(t_cur) + gamma * sigma(t_cur)))
+        x_hat = s(t_hat) / s(t_cur) * x_cur + (sigma(t_hat) ** 2 - sigma(t_cur) ** 2).clip(min=0).sqrt() * s(t_hat) * S_noise * randn_like(x_cur)
 
-            # Euler step on Prior.
-            h = t_next - t_hat
-            denoised = net(x_hat / s(t_hat), sigma(t_hat), class_labels).to(torch.float64)
-            d_cur = (sigma_deriv(t_hat) / sigma(t_hat) + s_deriv(t_hat) / s(t_hat)) * x_hat - sigma_deriv(t_hat) * s(t_hat) / sigma(t_hat) * denoised
-            x_prime = x_hat + alpha * h * d_cur
-            t_prime = t_hat + alpha * h
+        # Euler step on Prior.
+        h = t_next - t_hat
+        denoised = net(x_hat / s(t_hat), sigma(t_hat), class_labels).to(torch.float64)
+        d_cur = (sigma_deriv(t_hat) / sigma(t_hat) + s_deriv(t_hat) / s(t_hat)) * x_hat - sigma_deriv(t_hat) * s(t_hat) / sigma(t_hat) * denoised
+        x_prime = x_hat + alpha * h * d_cur
+        t_prime = t_hat + alpha * h
 
-            # Euler step on liklihood
-            # x_cur.shape = [1,2,H,W]
-            x_hat_cplx = torch.view_as_complex(x_hat.permute(0,-2,-1,1).contiguous())[None] #shape: [1,1,H,W]
-            Ax = forward(image=x_hat_cplx, maps=s_maps, mask=mask)
-            res = Ax-y_meas
-            l_cur = adjoint(ksp=res, maps=s_maps, mask=mask)[:,0,...]
-            
-            # print(l_cur.shape)
-
-
-            #Apply 2nd order correction.
-            if solver == 'euler' or i == num_steps - 1:
-                x_next = x_hat + h * d_cur - l_ss*torch.view_as_real(l_cur).permute(0,-1,1,2)
-            else:
-                assert solver == 'heun'
-                denoised = net(x_prime / s(t_prime), sigma(t_prime), class_labels).to(torch.float64)
-                d_prime = (sigma_deriv(t_prime) / sigma(t_prime) + s_deriv(t_prime) / s(t_prime)) * x_prime - sigma_deriv(t_prime) * s(t_prime) / sigma(t_prime) * denoised
-                x_next = x_hat + h * ((1 - 1 / (2 * alpha)) * d_cur + 1 / (2 * alpha) * d_prime)
+        # Euler step on liklihood
+        E_x_start = (1/s(t_cur))*(x_cur + (s(t_cur)**2)*(denoised-x_cur))
+        E_x_start_cplx = torch.view_as_complex(E_x_start.permute(0,-2,-1,1).contiguous())[None]
+        Ax = forward(image=E_x_start_cplx, maps=maps, mask=mask)
+        residual = y - Ax
+        sse = torch.norm(residual)**2
+        likelihood_score = torch.autograd.grad(outputs=sse, inputs=x_cur)[0]
 
 
-            if verbose:
-                cplx_recon = torch.view_as_complex(x_next.permute(0,-2,-1,1).contiguous())[None] #shape: [1,1,H,W]
-                print('Step:%d ,  NRMSE: %.3f'%(i, nrmse(gt_img, cplx_recon).item()))
+
+        #Apply update steps
+        if solver == 'euler' or i == num_steps - 1:
+            x_next = x_hat + h * d_cur - (l_ss / torch.sqrt(sse)) * likelihood_score
+        else:
+            # not yet usable
+            assert solver == 'heun'
+            denoised = net(x_prime / s(t_prime), sigma(t_prime), class_labels).to(torch.float64)
+            d_prime = (sigma_deriv(t_prime) / sigma(t_prime) + s_deriv(t_prime) / s(t_prime)) * x_prime - sigma_deriv(t_prime) * s(t_prime) / sigma(t_prime) * denoised
+            x_next = x_hat + h * ((1 - 1 / (2 * alpha)) * d_cur + 1 / (2 * alpha) * d_prime)
+
+
+        if verbose:
+            cplx_recon = torch.view_as_complex(x_next.permute(0,-2,-1,1).contiguous())[None] #shape: [1,1,H,W]
+            print('Step:%d ,  NRMSE: %.3f'%(i, nrmse(gt_img, cplx_recon).item()))
+
+        # Cleanup 
+        x_next = x_next.detach()
+        x_cur = x_cur.requires_grad_(False)
     return x_next
 
-def ODE_posterior_sampler(net, gt_img, y, maps, mask, latents, l_ss=1.0, second_order=False,
-                     class_labels=None, randn_like=torch.randn_like, num_steps=100,
-                      sigma_min=0.002, sigma_max=80, rho=7, S_churn=0,S_min=0,  S_max=float('inf'), S_noise=1, verbose=True):
+def simple_ODE_ps(net, gt_img, y, maps, mask, latents, l_ss=1.0, 
+                     class_labels=None, num_steps=100,
+                      sigma_min=0.002, sigma_max=80, rho=7, verbose=True):
     img_stack = []
     # Adjust noise levels based on what's supported by the network.
     sigma_min = max(sigma_min, net.sigma_min)
