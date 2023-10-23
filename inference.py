@@ -1,5 +1,4 @@
 # boiler plate imports
-import h5py
 import numpy as np
 import glob
 import torch
@@ -7,18 +6,10 @@ from tqdm import tqdm
 # import sigpy as sp
 import matplotlib.pyplot as plt
 import os
-import sys
 import argparse
-import copy
-from dotmap import DotMap
-import tqdm
-from utils import forward, adjoint, nrmse
-from sampling_funcs import StackedRandomGenerator, ODE_posterior_sampler
-import re
-import click
-import tqdm
+from utils import nrmse
+from sampling_funcs import StackedRandomGenerator, simple_ODE_ps, general_SDE_ps
 import pickle
-import PIL.Image
 import dnnlib
 from torch_utils import distributed as dist
 from skimage.metrics import structural_similarity as ssim
@@ -63,7 +54,7 @@ if args.contrast_recon == 'PD':
     norm_c        = torch.tensor(contents['norm1']).cuda() # scalar
     class_idx = None
 
-# normalize
+# normalize undersampled kspace and ground truth image
 ksp = ksp/norm_c
 gt_img = gt_img/norm_c
 
@@ -95,10 +86,18 @@ latents = rnd.randn([batch_size, net.img_channels, net.img_resolution, net.img_r
 class_labels = None
 
 
-image_recon, img_stack = ODE_posterior_sampler(net=net, gt_img=gt_img, y=ksp, maps=s_maps, mask=mask, 
-                                latents=latents, l_ss=args.l_ss, class_labels=None,
-                                num_steps=args.num_steps, sigma_min=0.002, 
-                                sigma_max=args.sigma_max, rho=7)
+# image_recon, img_stack = simple_ODE_ps(net=net, gt_img=gt_img, y=ksp, maps=s_maps, mask=mask, 
+#                                 latents=latents, l_ss=args.l_ss, class_labels=None,
+#                                 num_steps=args.num_steps, sigma_min=0.002, 
+#                                 sigma_max=args.sigma_max, rho=7)
+
+image_recon = general_SDE_ps(y=ksp, mask=mask, maps=s_maps, l_ss=args.l_ss, 
+    net=net, latents=latents, class_labels=None, randn_like=torch.randn_like,
+    num_steps=args.num_steps, sigma_min=0.002, sigma_max=args.sigma_max, rho=7,
+    solver=args.solver, discretization=args.discretization, schedule='linear', scaling=args.scaling,
+    epsilon_s=1e-3, C_1=0.001, C_2=0.008, M=1000, alpha=1,
+    S_churn=0, S_min=0, S_max=float('inf'), S_noise=1, gt_img=gt_img, verbose = True)
+
 
 cplx_recon = torch.view_as_complex(image_recon.permute(0,-2,-1,1).contiguous())[None] #shape: [1,1,H,W]
 #unnormalize
