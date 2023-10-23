@@ -1,4 +1,4 @@
-## Implementation of LOUPE for MoDL
+## Implementation of Posterior Sampling with Diffusion Models for MR Image Reconstruction
 
 ## Getting started
 
