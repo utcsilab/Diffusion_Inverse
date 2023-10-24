@@ -13,9 +13,10 @@ activate conda environment
 ```.bash
 conda activate edm
 ```
+## Prior Sampling
 
-Assuming all model, and data paths are configured correctly in inference.py use the following command to do a reconstruction
+To draw samples without conditioning see prior_sampling.ipynb
 
-```.bash
-python inference.py --gpu 0
-```
+## Posterior Sampling
+
+To get started with posterior sampling for inverse problems see example_PS.ipynb
