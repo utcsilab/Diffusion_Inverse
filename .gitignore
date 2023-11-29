@@ -1,2 +1,8 @@
 results/*
 *.pyc
+ip_results/*
+lsi_results/*
+models/*
+cs_results/*
+result_viewers/*
+test_data/*
