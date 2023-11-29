@@ -87,20 +87,6 @@ latents = rnd.randn([batch_size, net.img_channels, net.img_resolution, net.img_r
 class_labels = None
 
 
-# image_recon, img_stack = simple_ODE_ps(net=net, gt_img=gt_img, y=ksp, maps=s_maps, mask=mask, 
-#                                 latents=latents, l_ss=args.l_ss, class_labels=None,
-#                                 num_steps=args.num_steps, sigma_min=0.002, 
-#                                 sigma_max=args.sigma_max, rho=7)
-
-# def A_forw(x):
-#     #image shape: [B,1,H,W]
-#     #maps shape:  [B,C,H,W]
-#     # mask shape: [B,1,H,W]
-#     x = torch.view_as_complex(x.permute(0,-2,-1,1).contiguous())[None]
-#     coil_imgs = s_maps*x
-#     coil_ksp = fft(coil_imgs)
-#     sampled_ksp = mask*coil_ksp
-#     return sampled_ksp
 mri_utils = MRI_utils(maps=s_maps,mask=mask)
 A_forw = mri_utils.forward
 
