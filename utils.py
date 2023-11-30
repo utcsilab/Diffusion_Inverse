@@ -22,43 +22,21 @@ def nrmse(x, y):
     num = torch.norm(x-y, p=2)
     denom = torch.norm(x,p=2)
     return num/denom
-
-# Centered, orthogonal ifft in torch >= 1.7
-def ifft(x):
-    x = torch_fft.ifftshift(x, dim=(-2, -1))
-    x = torch_fft.ifft2(x, dim=(-2, -1), norm='ortho')
-    x = torch_fft.fftshift(x, dim=(-2, -1))
     return x
 
-# Centered, orthogonal fft in torch >= 1.7
-def fft(x):
-    x = torch_fft.fftshift(x, dim=(-2, -1))
-    x = torch_fft.fft2(x, dim=(-2, -1), norm='ortho')
-    x = torch_fft.ifftshift(x, dim=(-2, -1))
-    return x
-
-def get_mvue(kspace, s_maps):
-    ''' Get mvue estimate from coil measurements '''
-    return np.sum(sp.ifft(kspace, axes=(-1, -2)) * \
-                  np.conj(s_maps), axis=1)
-
-def forward(image, maps, mask):
-    #image shape: [B,1,H,W]
-    #maps shape: [B,C, H,W]
-    # mask shape: [B,1,H,W]
-
-    coil_imgs = maps*image
-    coil_ksp = fft(coil_imgs)
-    sampled_ksp = mask*coil_ksp
-    return sampled_ksp
-
-def adjoint(ksp, maps, mask):
-    # ksp shape: [B,1,H,W]
-    # maps shape: [B,C, H,W]
-    # mask shape: [B,1,H,W]
-
-    sampled_ksp = mask*ksp
-    coil_imgs = ifft(sampled_ksp)
-    img_out = torch.sum(torch.conj(maps)*coil_imgs,dim=1) #sum over coil dimension
-
-    return img_out[:,None,...]
+def gaussuian_filter(kernel_size, sigma=.05, muu=0):
+ 
+    # Initializing value of x,y as grid of kernel size
+    # in the range of kernel size
+ 
+    x, y = np.meshgrid(np.linspace(-2, 2, kernel_size),
+                       np.linspace(-2, 2, kernel_size))
+    dst = np.sqrt(x**2+y**2)
+ 
+    # lower normal part of gaussian
+    normal = 1/(2*np.pi * sigma**2)**.5
+ 
+    # Calculating Gaussian filter
+    gauss = np.exp(-((dst-muu)**2 / (2.0 * sigma**2))) * normal
+    gauss = gauss/np.sum(gauss)
+    return gauss
