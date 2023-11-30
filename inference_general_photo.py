@@ -7,13 +7,13 @@ from tqdm import tqdm
 import matplotlib.pyplot as plt
 import os
 import argparse
-from utils import nrmse
+from utils import nrmse, gaussuian_filter
 from sampling_funcs import StackedRandomGenerator, general_forward_SDE_ps
 import pickle
 import dnnlib
 from torch_utils import distributed as dist
 from skimage.metrics import structural_similarity as ssim
-from forwards import InPaint_utils
+from forwards import LSI_utils, InPaint_utils, CS_utils
 # dist.init()
 
 
@@ -23,7 +23,10 @@ parser.add_argument('--l_ss', type=float, default=1)
 parser.add_argument('--sigma_max', type=float, default=10)
 parser.add_argument('--num_steps', type=int, default=300)
 parser.add_argument('--R', type=int, default=1)
+# parser.add_argument('--blur_sig', type=float, default=0.05)
+parser.add_argument('--task', type=str, default='deconv') # ['deconv', 'inpaint', 'compsens']
 parser.add_argument('--seed', type=int, default=100)
+parser.add_argument('--S_churn', type=float, default=40)
 parser.add_argument('--discretization', type=str, default='edm') # ['vp', 've', 'iddpm', 'edm']
 parser.add_argument('--solver', type=str, default='euler') # ['euler', 'heun']
 parser.add_argument('--schedule', type=str, default='vp') # ['vp', 've', 'linear']
@@ -40,19 +43,35 @@ device=torch.device('cuda')
 
 
 # load sample 
-data_file = './test_data/test_cat.pt'
-gt_img = torch.load(data_file)
+data_file = './test_data/test_lion_64x64.pt'
+gt_img = torch.load(data_file)[None].cuda()
 
-# setup inpainting forward model + utilities
+# forward model for specific inverse problem
 H = gt_img.shape[-2]
 W = gt_img.shape[-1]
-m = H*W//args.R
-ip_utils = InPaint_utils(m=m,H=H,W=W)
-A_forw = ip_utils.forward
-meas = A_forw(gt_img)
+if args.task=='deconv':
+    # psf = gaussuian_filter(kernel_size=gt_img.shape[-1],sigma=args.blur_sig)
+    # psf = torch.tensor(psf)[None,None].cuda()
+    psf = torch.tensor(torch.load('./test_data/psf_64x64.pt'))[None,None].cuda()
+    utils = LSI_utils(psf=psf,H=H,W=W)
+    A_forw = utils.forward
+    meas = A_forw(gt_img)
+elif args.task=='inpaint':
+    m = H*W//args.R
+    utils = InPaint_utils(m=m,H=H,W=W)
+    A_forw = utils.forward
+    meas = A_forw(gt_img)
+elif args.task=='compsens':
+    m = H*W//args.R
+    utils = CS_utils(m=m,H=H,W=W,device=device)
+    A_forw = utils.forward
+    meas = A_forw(gt_img)
+
+
 
 # designate + create save directory
-results_dir = './ip_results/'
+results_dir = f'./{args.task}_results/'
+
 if not os.path.exists(results_dir):
     os.makedirs(results_dir)
 
@@ -78,7 +97,7 @@ recon_img = general_forward_SDE_ps(y=meas, A_forw=A_forw, task='', l_ss=args.l_s
     num_steps=args.num_steps, sigma_min=0.002, sigma_max=args.sigma_max, rho=7,
     solver=args.solver, discretization=args.discretization, schedule='linear', scaling=args.scaling,
     epsilon_s=1e-3, C_1=0.001, C_2=0.008, M=1000, alpha=1,
-    S_churn=0, S_min=0, S_max=float('inf'), S_noise=1, gt_img=gt_img, verbose = True)
+    S_churn=args.S_churn, S_min=0, S_max=float('inf'), S_noise=1, gt_img=gt_img, verbose = True)
 
 
 img_nrmse = nrmse(gt_img, recon_img).item()
@@ -87,7 +106,7 @@ dict = {
         'gt_img': gt_img,
         'recon':recon_img,
         'meas':meas,
-        'forward_utils':ip_utils,
+        'forward_utils':utils,
         'nrmse':img_nrmse,
 }
 
