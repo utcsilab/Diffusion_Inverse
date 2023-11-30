@@ -1,4 +1,5 @@
 results/*
+mri_results/*
 *.pyc
 ip_results/*
 lsi_results/*
