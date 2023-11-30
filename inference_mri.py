@@ -26,6 +26,7 @@ parser.add_argument('--ACS_perc', type=float, default=0.04)
 parser.add_argument('--R', type=int, default=4)
 parser.add_argument('--sample', type=int, default=0)
 parser.add_argument('--seed', type=int, default=0)
+parser.add_argument('--S_churn', type=float, default=40)
 parser.add_argument('--contrast_recon', type=str, default='PD')
 parser.add_argument('--net_arch', type=str, default='ddpmpp') 
 parser.add_argument('--discretization', type=str, default='edm') # ['vp', 've', 'iddpm', 'edm']
@@ -92,7 +93,7 @@ image_recon = general_forward_SDE_ps(y=ksp, A_forw=A_forw, task='mri', l_ss=args
     num_steps=args.num_steps, sigma_min=0.002, sigma_max=args.sigma_max, rho=7,
     solver=args.solver, discretization=args.discretization, schedule='linear', scaling=args.scaling,
     epsilon_s=1e-3, C_1=0.001, C_2=0.008, M=1000, alpha=1,
-    S_churn=0, S_min=0, S_max=float('inf'), S_noise=1, gt_img=gt_img, verbose = True)
+    S_churn=args.S_churn, S_min=0, S_max=float('inf'), S_noise=1, gt_img=gt_img, verbose = True)
 
 
 cplx_recon = torch.view_as_complex(image_recon.permute(0,-2,-1,1).contiguous())[None] #shape: [1,1,H,W]
