@@ -1,9 +1,9 @@
-results/*
-mri_results/*
 *.pyc
-ip_results/*
-lsi_results/*
+mri_results/*
+inpaint_results/*
+deconv_results/*
 models/*
-cs_results/*
+compsens_results/*
 result_viewers/*
 test_data/*
+dataset_testing/*
