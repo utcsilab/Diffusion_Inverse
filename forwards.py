@@ -30,27 +30,6 @@ def fft(x,norm='ortho'):
     return x
 
 
-def mri_forward(image, maps, mask):
-    #image shape: [B,1,H,W]
-    #maps shape:  [B,C,H,W]
-    # mask shape: [B,1,H,W]
-
-    coil_imgs = maps*image
-    coil_ksp = fft(coil_imgs)
-    sampled_ksp = mask*coil_ksp
-    return sampled_ksp
-
-def mri_adjoint(ksp, maps, mask):
-    # ksp shape:  [B,1,H,W]
-    # maps shape: [B,C,H,W]
-    # mask shape: [B,1,H,W]
-
-    sampled_ksp = mask*ksp
-    coil_imgs = ifft(sampled_ksp)
-    img_out = torch.sum(torch.conj(maps)*coil_imgs,dim=1) #sum over coil dimension
-
-    return img_out[:,None,...]
-
 class MRI_utils:
     def __init__(self, mask, maps):
         self.mask = mask
@@ -65,6 +44,17 @@ class MRI_utils:
         coil_ksp = fft(coil_imgs)
         sampled_ksp = self.mask*coil_ksp
         return sampled_ksp
+
+    def adjoint(self,y):
+        # ksp shape:  [B,1,H,W]
+        # maps shape: [B,C,H,W]
+        # mask shape: [B,1,H,W]
+
+        sampled_ksp = self.mask*y
+        coil_imgs = ifft(sampled_ksp)
+        img_out = torch.sum(torch.conj(self.maps)*coil_imgs,dim=1) #sum over coil dimension
+
+        return img_out[:,None,...]
 
 class CS_utils:
     def __init__(self, m, H, W, batch=1, chan=3, device='cuda'):
@@ -150,20 +140,3 @@ class LSI_utils:
 
         adj_img = self.A*y         
         return adj_img
-
-def gaussuian_filter(kernel_size, sigma=.05, muu=0):
- 
-    # Initializing value of x,y as grid of kernel size
-    # in the range of kernel size
- 
-    x, y = np.meshgrid(np.linspace(-2, 2, kernel_size),
-                       np.linspace(-2, 2, kernel_size))
-    dst = np.sqrt(x**2+y**2)
- 
-    # lower normal part of gaussian
-    normal = 1/(2*np.pi * sigma**2)**.5
- 
-    # Calculating Gaussian filter
-    gauss = np.exp(-((dst-muu)**2 / (2.0 * sigma**2))) * normal
-    gauss = gauss/np.sum(gauss)
-    return gauss
