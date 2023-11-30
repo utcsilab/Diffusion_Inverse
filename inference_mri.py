@@ -7,8 +7,8 @@ from tqdm import tqdm
 import matplotlib.pyplot as plt
 import os
 import argparse
-from utils import nrmse, fft
-from sampling_funcs import StackedRandomGenerator, simple_ODE_ps, general_forward_SDE_ps
+from utils import nrmse
+from sampling_funcs import StackedRandomGenerator, general_forward_SDE_ps
 import pickle
 import dnnlib
 from torch_utils import distributed as dist
@@ -59,22 +59,20 @@ if args.contrast_recon == 'PD':
 ksp = ksp/norm_c
 gt_img = gt_img/norm_c
 
-batch_size = 1
+# setup MRI forward model + utilities
+mri_utils = MRI_utils(maps=s_maps,mask=mask)
+A_forw = mri_utils.forward
 
-
-results_dir = './results/'
-
+# designate + create save directory
+results_dir = './mri_results/'
 if not os.path.exists(results_dir):
     os.makedirs(results_dir)
 
 # load network
 if args.contrast_recon=='PD':
     net_save = '/csiNAS2/slow/brett/edm_outputs/00034-fastmri_PD_knee_preprocessed_7_21_23-uncond-ddpmpp-edm-gpus3-batch15-fp32-PD_knee_7_21_23/network-snapshot-010000.pkl'
-
 if dist.get_rank() != 0:
         torch.distributed.barrier()
-
-# Load network.
 dist.print0(f'Loading network from "{net_save}"...')
 with dnnlib.util.open_url(net_save, verbose=(dist.get_rank() == 0)) as f:
     net = pickle.load(f)['ema'].to(device)
@@ -82,13 +80,12 @@ with dnnlib.util.open_url(net_save, verbose=(dist.get_rank() == 0)) as f:
 
 
 # Pick latents and labels.
+batch_size = 1
 rnd = StackedRandomGenerator(device, [args.seed])
 latents = rnd.randn([batch_size, net.img_channels, net.img_resolution, net.img_resolution], device=device)
 class_labels = None
 
 
-mri_utils = MRI_utils(maps=s_maps,mask=mask)
-A_forw = mri_utils.forward
 
 image_recon = general_forward_SDE_ps(y=ksp, A_forw=A_forw, task='mri', l_ss=args.l_ss, 
     net=net, latents=latents, class_labels=None, randn_like=torch.randn_like,

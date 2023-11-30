@@ -8,7 +8,7 @@ import matplotlib.pyplot as plt
 import os
 import argparse
 from utils import nrmse, fft
-from sampling_funcs import StackedRandomGenerator, simple_ODE_ps, general_forward_SDE_ps
+from sampling_funcs import StackedRandomGenerator, general_forward_SDE_ps
 import pickle
 import dnnlib
 from torch_utils import distributed as dist
@@ -43,18 +43,23 @@ device=torch.device('cuda')
 data_file = 'test_cat.pt'
 gt_img = torch.load(data_file)
 
+# setup CS forward model + utilities
+H = gt_img.shape[-2]
+W = gt_img.shape[-1]
+m = H*W//args.R
+cs_utils = CS_utils(m=m,H=H,W=W)
+A_forw = cs_utils.forward
+meas = A_forw(gt_img)
 
+# designate + create save directory
 results_dir = './cs_results/'
 if not os.path.exists(results_dir):
     os.makedirs(results_dir)
 
 # load network
 net_save = '/home/blevac/Diffusion_Inverse/models/edm-afhqv2-64x64-uncond-ve.pkl'
-
 if dist.get_rank() != 0:
     torch.distributed.barrier()
-
-# Load network.
 dist.print0(f'Loading network from "{net_save}"...')
 with dnnlib.util.open_url(net_save, verbose=(dist.get_rank() == 0)) as f:
     net = pickle.load(f)['ema'].to(device)
@@ -68,13 +73,6 @@ latents = rnd.randn([batch_size, net.img_channels, net.img_resolution, net.img_r
 class_labels = None
 
 
-H = gt_img.shape[-2]
-W = gt_img.shape[-1]
-m = H*W//args.R
-cs_utils = CS_utils(m=m,H=H,W=W)
-A_forw = cs_utils.forward
-meas = A_forw(gt_img)
-
 recon_img = general_forward_SDE_ps(y=meas, A_forw=A_forw, task='', l_ss=args.l_ss, 
     net=net, latents=latents, class_labels=None, randn_like=torch.randn_like,
     num_steps=args.num_steps, sigma_min=0.002, sigma_max=args.sigma_max, rho=7,
@@ -85,21 +83,13 @@ recon_img = general_forward_SDE_ps(y=meas, A_forw=A_forw, task='', l_ss=args.l_s
 
 img_nrmse = nrmse(gt_img, recon_img).item()
 
-# cplx_recon=cplx_recon.detach().cpu().numpy()
-# gt_img=gt_img.cpu().numpy()
-# img_SSIM = ssim(abs(gt_img[0,0]), abs(cplx_recon[0,0]), data_range=abs(gt_img[0,0]).max() - abs(gt_img[0,0]).min())
-
-
-# print('Sample %d, Seed %d, NRMSE: %.3f, SSIM: %.3f'%(args.sample,args.seed, img_nrmse, img_SSIM))
 
 dict = { 
         'gt_img': gt_img,
         'recon':recon_img,
         'meas':meas,
         'forward_utils':cs_utils,
-        # 'img_stack': img_stack,
         'nrmse':img_nrmse,
-        # 'ssim': img_SSIM 
 }
 
 torch.save(dict, results_dir + '/checkpoint.pt')
