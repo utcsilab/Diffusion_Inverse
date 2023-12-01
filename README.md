@@ -14,10 +14,9 @@ activate conda environment
 conda activate edm
 ```
 ## RGB Image Experiments
+Download model weights from: https://nvlabs-fi-cdn.nvidia.com/edm/pretrained/. Specifically, download "edm-afhqv2-64x64-uncond-ve.pkl".
 
-Download the contents of the following public box folder: https://utexas.app.box.com/folder/237821411608
-
-This folder contains model weights for a diffusion model trained on 64x64 RGB image from the AFHQ dataset, and an example 64x64 image from the validation parition of the AFHQ dataset.
+Download an example 64x64 image from the validation parition of the AFHQ dataset: https://utexas.app.box.com/v/utcsilab-data/folder/237821411608.
  
 
 Next, in "inference_general_photo.py" change the path for (1) the model weights and (2) the test data .pt file to their respective locations on your local machine.
