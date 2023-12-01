@@ -97,10 +97,11 @@ recon_img = general_forward_SDE_ps(y=meas, A_forw=A_forw, task='', l_ss=args.l_s
     num_steps=args.num_steps, sigma_min=0.002, sigma_max=args.sigma_max, rho=7,
     solver=args.solver, discretization=args.discretization, schedule='linear', scaling=args.scaling,
     epsilon_s=1e-3, C_1=0.001, C_2=0.008, M=1000, alpha=1,
-    S_churn=args.S_churn, S_min=0, S_max=float('inf'), S_noise=1, gt_img=gt_img, verbose = True)
+    S_churn=args.S_churn, S_min=0, S_max=float('inf'), S_noise=1, verbose = True)
 
 
 img_nrmse = nrmse(gt_img, recon_img).item()
+print('NRMSE: %.3f'%img_nrmse)
 
 dict = { 
         'gt_img': gt_img,

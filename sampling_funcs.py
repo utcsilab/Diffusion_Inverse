@@ -155,8 +155,9 @@ def general_SDE_particle_ps(
 
 
         if verbose:
-            cplx_recon = torch.view_as_complex(x_next.permute(0,-2,-1,1).contiguous())[None] #shape: [1,1,H,W]
-            print('Step:%d ,  NRMSE: %.3f'%(i, nrmse(gt_img, cplx_recon).item()))
+            # cplx_recon = torch.view_as_complex(x_next.permute(0,-2,-1,1).contiguous())[None] #shape: [1,1,H,W]
+            # print('Step:%d ,  NRMSE: %.3f'%(i, nrmse(gt_img, cplx_recon).item()))
+            print('Step:%d ,  DC Loss: %.3e'%(i, sse.item()))
 
         # Cleanup 
         x_next = x_next.detach()
@@ -199,7 +200,7 @@ def general_forward_SDE_ps(
     num_steps=18, sigma_min=None, sigma_max=None, rho=7,
     solver='euler', discretization='edm', schedule='linear', scaling='none',
     epsilon_s=1e-3, C_1=0.001, C_2=0.008, M=1000, alpha=1,
-    S_churn=0, S_min=0, S_max=float('inf'), S_noise=1, gt_img=None, verbose = True,
+    S_churn=0, S_min=0, S_max=float('inf'), S_noise=1, verbose = True,
 ):
     assert solver in ['euler', 'heun']
     assert discretization in ['vp', 've', 'iddpm', 'edm']
@@ -319,7 +320,8 @@ def general_forward_SDE_ps(
         if task=='mri':
             cplx_recon = mri_transform(x_next) #shape: [1,1,H,W]
         if verbose:    
-            print('Step:%d ,  NRMSE: %.3f'%(i, nrmse(gt_img, x_next).item()))
+            # print('Step:%d ,  NRMSE: %.3f'%(i, nrmse(gt_img, x_next).item()))
+            print('Step:%d ,  DC Loss: %.3e'%(i, sse.item()))
 
         # Cleanup 
         x_next = x_next.detach()
