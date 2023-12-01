@@ -1,4 +1,6 @@
-## Implementation of Posterior Sampling with Diffusion Models for MR Image Reconstruction
+## Posterior Sampling for Inverse problems via Diffusion Models
+
+This is an implemenation of posterior sampling with diffusion models to be used for solving inverse problems in computational imaging (e.g., MRI reconstruction, Image Deconvolution, Inpainting, Compressed Sensing, etc.). It is built atop the repo accompanying "Elucidating the Design Space of Diffusion-Based Generative Models" (https://arxiv.org/abs/2206.00364). See the repo for EDM here: https://github.com/NVlabs/edm 
 
 ## Getting started
 
