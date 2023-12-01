@@ -13,7 +13,7 @@ activate conda environment
 ```.bash
 conda activate edm
 ```
-## RBG Image Experiments
+## RGB Image Experiments
 
 Download the contents of the following public box folder: https://utexas.app.box.com/folder/237821411608
 
@@ -38,7 +38,3 @@ if you then run the results viewer notbook you should see results that look simi
 ![front_page_sample](figures/IP_readme_ex.png)
 
 
-
-## Posterior Sampling
-
-To get started with posterior sampling for inverse problems see example_PS.ipynb
