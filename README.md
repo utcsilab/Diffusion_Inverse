@@ -39,3 +39,15 @@ if you then run the results viewer notbook you should see results that look simi
 ![front_page_sample](figures/IP_readme_ex.png)
 
 
+## MRI Recon Experiments
+Download the model weights and example single coil kspace file from: https://utexas.app.box.com/v/utcsilab-data/folder/238168458833.
+
+Next, in "inference_mri.py" change the paths for (1) the model weights and (2) the test data .pt file to their respective locations on your local machine.
+
+To run an accelerated recon at R=4 run the following command
+
+```.bash
+python inference_mri.py --R 4
+```
+if you then run the results viewer notbook you should see results that look similar to the following
+![front_page_sample](figures/MRI_readme_ex.png)
