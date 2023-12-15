@@ -157,9 +157,7 @@ def general_forward_SDE_ps(
 
         residual = y - Ax  
         residual = residual.reshape(latents.shape[0],-1)
-
         sse_ind = torch.norm(residual,dim=-1)**2
-        # print(sse_ind.shape)
         sse = torch.sum(sse_ind)
         likelihood_score = torch.autograd.grad(outputs=sse, inputs=x_cur)[0]
 
@@ -167,7 +165,7 @@ def general_forward_SDE_ps(
 
         #Apply update steps
         if solver == 'euler' or i == num_steps - 1:
-            x_next = x_hat + h * d_cur - (l_ss / torch.sqrt(sse)) * likelihood_score
+            x_next = x_hat + h * d_cur - (l_ss / torch.sqrt(sse_ind)[:,None,None,None]) * likelihood_score
         else:
             # not yet usable
             assert solver == 'heun'
@@ -177,7 +175,8 @@ def general_forward_SDE_ps(
 
 
         if task=='mri':
-            cplx_recon = mri_transform(x_next) #shape: [1,1,H,W]
+            cplx_recon = mri_transform(x_next) #shape: [B,1,H,W]
+            # print(cplx_recon.shape)
         if verbose:    
             # print('Step:%d ,  NRMSE: %.3f'%(i, nrmse(gt_img, x_next).item()))
             print('Step:%d ,  DC Loss: %.3e'%(i, sse.item()))
@@ -188,4 +187,4 @@ def general_forward_SDE_ps(
     return x_next
 
 def mri_transform(x):
-    return torch.view_as_complex(x.permute(0,-2,-1,1).contiguous())[None] #shape: [1,1,H,W]
+    return torch.view_as_complex(x.permute(0,-2,-1,1).contiguous())[:,None,...] #shape: [1,1,H,W]
