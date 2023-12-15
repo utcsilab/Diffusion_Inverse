@@ -39,7 +39,7 @@ class MRI_utils:
         #image shape: [B,1,H,W]
         #maps shape:  [B,C,H,W]
         # mask shape: [B,1,H,W]
-        x_cplx = torch.view_as_complex(x.permute(0,-2,-1,1).contiguous())[None]
+        x_cplx = torch.view_as_complex(x.permute(0,-2,-1,1).contiguous())[:,None,...]
         coil_imgs = self.maps*x_cplx
         coil_ksp = fft(coil_imgs)
         sampled_ksp = self.mask*coil_ksp
@@ -68,20 +68,14 @@ class CS_utils:
 
     def forward(self,x):
         #image shape: [B,C,H,W]
-        # print('x shape: ', x.shape)
         x_vec = torch.reshape(x,(self.batch, self.chan, self.n))
-        # print('A shape: ', self.A.shape)
-        # print('x_vec shape:  ',x_vec.shape)
         sampled_meas = torch.matmul(x_vec, self.A)      
         #meas shape: [B,C,m]
         return sampled_meas
 
     def meas_forward(self,x):
         #image shape: [B,C,H,W]
-        # print('x shape: ', x.shape)
         x_vec = torch.reshape(x,(1, self.chan, self.n))
-        # print('A shape: ', self.A.shape)
-        # print('x_vec shape:  ',x_vec.shape)
         sampled_meas = torch.matmul(x_vec, self.A)      
         #meas shape: [B,C,m]
         return sampled_meas
@@ -92,6 +86,11 @@ class CS_utils:
         adj_vector = torch.matmul(y, self.A.T)
         adj_img    = torch.reshape(adj_vector, (self.batch, self.chan, self.H, self.W))       
         return adj_img
+
+    def normal(self, x):
+        y = self.forward(x)
+        x_adj = self.adjoint(y)
+        return x_adj
 
 
 class CS_blind_utils:
@@ -107,20 +106,14 @@ class CS_blind_utils:
 
     def assumed_forward(self,x):
         #image shape: [B,C,H,W]
-        # print('x shape: ', x.shape)
         x_vec = torch.reshape(x,(self.batch, self.chan, self.n))
-        # print('A shape: ', self.A.shape)
-        # print('x_vec shape:  ',x_vec.shape)
         sampled_meas = torch.matmul(x_vec, self.A)      
         #meas shape: [B,C,m]
         return sampled_meas
 
     def true_forward(self,x):
         #image shape: [B,C,H,W]
-        # print('x shape: ', x.shape)
         x_vec = torch.reshape(x,(self.batch, self.chan, self.n))
-        # print('A shape: ', self.A.shape)
-        # print('x_vec shape:  ',x_vec.shape)
         sampled_meas = torch.matmul(x_vec, self.A) + torch.matmul(x_vec, self.A_error)      
         #meas shape: [B,C,m]
         return sampled_meas
@@ -186,3 +179,21 @@ class LSI_utils:
         meas_fft = psf_fft*x_fft
         meas_pad = ifft(meas_fft,norm='backward')  
         return self.crop(meas_pad)
+
+    def adjoint(self,x):
+        #image shape: [B,C,H,W]
+        psf_pad = self.pad(self.psf)
+        x_pad   = self.pad(x)
+        psf_pad = self.psf
+        x_pad = x
+        x_fft = fft(x_pad,norm='backward')
+        psf_fft = fft(psf_pad,norm='backward')
+
+        meas_fft = torch.conj(psf_fft)*x_fft
+        meas_pad = ifft(meas_fft,norm='backward')  
+        return self.crop(meas_pad)
+
+    def normal(self, x):
+        y = self.forward(x)
+        x_adj = self.adjoint(y)
+        return x_adj
