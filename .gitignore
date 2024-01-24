@@ -1,9 +1,11 @@
 *.pyc
-mri_results/*
-inpaint_results/*
-deconv_results/*
 models/*
-compsens_results/*
-result_viewers/*
 test_data/*
 dataset_testing/*
+deconv_results_likelihood/*
+compsens_results_likelihood/*
+blind_compsens_results/*
+Blind_Photo_results_viewer.ipynb
+inference_blind_photo.py
+Power Iteration.ipynb
+results/*

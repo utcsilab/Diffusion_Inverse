@@ -30,7 +30,12 @@ import uuid
 
 from distutils.util import strtobool
 from typing import Any, List, Tuple, Union, Optional
-
+import s3fs
+from torch_utils import distributed as dist
+import torch
+import PIL
+from torchvision import transforms
+import torch.nn.functional as F
 
 # Util classes
 # ------------------------------------------------------------------------------------------
@@ -59,7 +64,7 @@ class Logger(object):
         self.file = None
 
         if file_name is not None:
-            self.file = open(file_name, file_mode)
+            self.file = open_url(file_name, read_mode=file_mode)
 
         self.should_flush = should_flush
         self.stdout = sys.stdout
@@ -391,15 +396,47 @@ def is_url(obj: Any, allow_file_urls: bool = False) -> bool:
         return False
     return True
 
+def create_dir(directory):
+    # no need to create empty dirs in s3
+    if not directory.startswith('s3://'):
+        os.makedirs(directory, exist_ok=True)
 
-def open_url(url: str, cache_dir: str = None, num_attempts: int = 10, verbose: bool = True, return_filename: bool = False, cache: bool = True) -> Any:
+def list_dir(directory):
+    if not directory.startswith('s3://'):
+        return os.listdir(directory)
+    else:
+        s3 = s3fs.S3FileSystem(anon=False)
+        return [x['Key'] for x in s3.listdir(directory)]        
+
+def is_dir(directory):
+    if not directory.startswith('s3://'):
+        return os.path.isdir(directory)
+    else:
+        s3 = s3fs.S3FileSystem(anon=False)
+        return s3.isdir(directory)       
+    
+def is_file(filename):
+    if not filename.startswith('s3://'):
+        return os.path.isfile(filename)
+    else:
+        s3 = s3fs.S3FileSystem(anon=False)
+        return s3.isfile(filename)
+
+
+    
+def open_url(url: str, cache_dir: str = None, num_attempts: int = 10, verbose: bool = True, return_filename: bool = False, cache: bool = True, read_mode: str = 'rb') -> Any:
     """Download the given URL and return a binary-mode file object to access the data."""
     assert num_attempts >= 1
     assert not (return_filename and (not cache))
 
+    # check it is an s3 path    
+    if url.startswith('s3://'):
+        s3 = s3fs.S3FileSystem(anon=False)
+        return s3.open(url, read_mode)
+
     # Doesn't look like an URL scheme so interpret it as a local filename.
     if not re.match('^[a-z]+://', url):
-        return url if return_filename else open(url, "rb")
+        return url if return_filename else open(url, read_mode)
 
     # Handle file URLs.  This code handles unusual file:// patterns that
     # arise on Windows:
@@ -419,7 +456,7 @@ def open_url(url: str, cache_dir: str = None, num_attempts: int = 10, verbose: b
         filename = urllib.parse.urlparse(url).path
         if re.match(r'^/[a-zA-Z]:', filename):
             filename = filename[1:]
-        return filename if return_filename else open(filename, "rb")
+        return filename if return_filename else open(filename, read_mode)
 
     assert is_url(url)
 
@@ -432,7 +469,7 @@ def open_url(url: str, cache_dir: str = None, num_attempts: int = 10, verbose: b
         cache_files = glob.glob(os.path.join(cache_dir, url_md5 + "_*"))
         if len(cache_files) == 1:
             filename = cache_files[0]
-            return filename if return_filename else open(filename, "rb")
+            return filename if return_filename else open(filename, read_mode)
 
     # Download.
     url_name = None
@@ -489,3 +526,135 @@ def open_url(url: str, cache_dir: str = None, num_attempts: int = 10, verbose: b
     # Return data as file object.
     assert not return_filename
     return io.BytesIO(url_data)
+
+
+def print_tensor_stats(tensor, tensor_name):
+    dist.print0(f"{tensor_name}: \t Mean: {tensor.mean():.4f} Max: {tensor.max():.4f}, Min: {tensor.min():.4f}")
+
+
+def tensor_clipping(x, static=True, p=0.99):
+    dtype = x.dtype
+    if static:
+        return torch.clip(x, -1.0, 1.0)
+    else:
+        s_val = torch.tensor(np.percentile(torch.abs(x).detach().cpu().numpy(), p, axis=tuple(range(1, x.ndim))), device=x.device, dtype=dtype)
+        s_val = torch.max(s_val, torch.tensor(1.0))
+        s_val = s_val.reshape((-1, 1, 1, 1))
+        return torch.clip(x, -s_val, s_val) / s_val
+
+def save_image(images, image_path):
+    image_np = (images * 127.5 + 128).clip(0, 255).to(torch.uint8).permute(1, 2, 0).cpu().numpy()
+    if image_np.shape[2] == 1:
+        PIL.Image.fromarray(image_np[:, :, 0], 'L').save(image_path)
+    else:
+        PIL.Image.fromarray(image_np, 'RGB').save(image_path)
+
+
+def save_images(images, image_path, num_rows=None, num_cols=None):
+    if num_rows is None:
+        num_rows = int(np.sqrt(images.shape[0]))
+    if num_cols is None:
+        num_cols = int(np.ceil(images.shape[0] / num_rows))
+    
+    # TODO(giannisdaras): only works with square grids
+    image_np = (images * 127.5 + 128).clip(0, 255).to(torch.uint8).permute(0, 2, 3, 1).cpu().numpy()
+    image_size = images.shape[-2]
+    grid_image = PIL.Image.new('RGB', (num_cols * image_size, num_rows * image_size))
+    for i in range(num_rows):
+        for j in range(num_cols):
+            index = i * num_cols + j
+            img = PIL.Image.fromarray(image_np[index])
+            grid_image.paste(img, (i * image_size, j * image_size))
+    grid_image.save(image_path)
+
+
+def unroll_collage(x, num_rows):
+    """Unroll a collage of images into a batch of images.
+        Args:
+        :x (torch.Tensor): shape (3, width, height)
+        :num_rows (int): number of rows in the collage
+        Returns: 
+        :x (torch.Tensor): shape (num_rows**2, 3, width, height)
+    """
+    x = x.squeeze()
+    img_resolution = x.shape[-1] // num_rows
+    x = x.reshape(3, num_rows, img_resolution, num_rows, img_resolution)
+    x = x.permute(0, 1, 3, 2, 4).reshape(3, num_rows**2, img_resolution, img_resolution)
+    x = x.permute(1, 0, 2, 3)
+    return x
+
+
+def average_image(x, scale_factor):
+    down_scaled = F.interpolate(x, scale_factor=scale_factor, mode='area')
+    averaged = F.interpolate(down_scaled, size=(x.shape[2], x.shape[3]), mode='bilinear', align_corners=False)
+    return averaged
+
+
+def pooling_matrix(scale_factor, size):
+    pooling_size = int(size * scale_factor)
+    matrix = torch.zeros(size, pooling_size)
+    step = int(size // pooling_size)
+    
+    for i in range(pooling_size):
+        matrix[i*step:(i+1)*step, i] = 1/step
+        
+    return matrix
+
+def create_down_up_matrix(scale_factor, size):
+    down_matrix = pooling_matrix(scale_factor, size)
+    up_matrix = pooling_matrix(scale_factor, size).t()
+    down_up_matrix = down_matrix @ up_matrix
+    return down_up_matrix
+
+def linear_average(x, matrix):
+    _, channels, width, height = x.shape
+    x_flat = x.view(channels, width * height)
+    avg_flat = matrix.matmul(x_flat)
+    avg = avg_flat.view(channels, width, height)
+    return avg
+
+
+def sample_ratio(ratios=[1.0, 0.8, 0.6, 0.4, 0.2, 0.0], target_ratio=0.4, decay_exponent=8):
+    # Calculate the decayed distance of each ratio from the target
+    distances = [(abs(r - target_ratio) + 1)**decay_exponent for r in ratios]
+
+    # Compute the inverted probabilities and normalize them
+    probabilities = [1 / dist for dist in distances]
+    normalized_probabilities = [prob / sum(probabilities) for prob in probabilities]
+
+    # Generate the random number from the distribution
+    random_ratio = np.random.choice(ratios, p=normalized_probabilities)
+    return random_ratio
+
+
+
+
+    
+def load_image(image_path, device='cuda'):
+    pil_image = PIL.Image.open(image_path)
+    transform = transforms.Compose([
+        transforms.ToTensor()
+    ])
+    tensor_image = transform(pil_image)
+    return torch.unsqueeze(tensor_image, 0).to(device)
+
+
+def pad_image(image, mode='reflect', height_patch=14, width_patch=14):
+    # Get the input image shape
+    batch, channels, height, width = image.shape
+    
+    # Calculate the padding required for height and width
+    padding_height = (height_patch - (height % height_patch)) % height_patch
+    padding_width = (width_patch - (width % width_patch)) % width_patch
+    
+    # Determine the padding on each side
+    top_padding = padding_height // 2
+    bottom_padding = padding_height - top_padding
+    left_padding = padding_width // 2
+    right_padding = padding_width - left_padding
+    
+    # Apply the padding to the image tensor
+    padding = (left_padding, right_padding, top_padding, bottom_padding)
+    padded_image = F.pad(image, padding, mode=mode)
+
+    return padded_image
