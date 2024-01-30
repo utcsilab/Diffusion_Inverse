@@ -104,10 +104,11 @@ cplx_recon = torch.view_as_complex(image_recon.permute(0,-2,-1,1).contiguous())[
 
 
 cplx_recon=cplx_recon.detach().cpu().numpy()
+mean_recon=np.mean(cplx_recon,axis=0)[None]
 gt_img=gt_img.cpu().numpy()
-img_nrmse = nrmse_np(abs(gt_img[0,0]), abs(cplx_recon[0,0]))
-img_SSIM = ssim(abs(gt_img[0,0]), abs(cplx_recon[0,0]), data_range=abs(gt_img[0,0]).max() - abs(gt_img[0,0]).min())
-img_PSNR = psnr(gt=abs(gt_img[0,0]), est=abs(cplx_recon[0]),max_pixel=np.amax(abs(gt_img)))
+img_nrmse = nrmse_np(abs(gt_img[0,0]), abs(mean_recon[0,0]))
+img_SSIM = ssim(abs(gt_img[0,0]), abs(mean_recon[0,0]), data_range=abs(gt_img[0,0]).max() - abs(gt_img[0,0]).min())
+img_PSNR = psnr(gt=abs(gt_img[0,0]), est=abs(mean_recon[0]),max_pixel=np.amax(abs(gt_img)))
 
 # print('cplx net out shape: ',cplx_recon.shape)
 print('Sample %d, R: %d, NRMSE: %.3f, SSIM: %.3f, PSNR: %.3f'%(args.sample, args.R, img_nrmse, img_SSIM, img_PSNR))
